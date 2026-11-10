@@ -1,7 +1,14 @@
+# (Probably stupid) demonstration of the Multi-level Feedback Queue (MLFQ) operating system scheduling policy with Ruby.
+# The policy is as follows basically:
+#   - Processes are scheduled using a set of queues ordered by priority, from lowest to highest. The queues may have time slices proportional to their priority 
+#   - If process A's queue priority > Process B's, process A runs
+#   - If process A's queue == Process B's, the processes are scheduled in a round-robbin fashion
+#   - When a process uses up it's time slice (cumulatively), it's demoted to the lower queue, else it remains in it's current queue
+#   - Periodically (say every 1s), reset by moving all processes to the topost queue
+
 require "securerandom"
 require "benchmark"
 
-# (Probably stupid) demonstration of Multi-level Feedback Queue (MLFQ) operating system scheduling policy with Ruby
 class PriorityQueue
   def initialize(levels)
     @levels = levels
@@ -85,12 +92,14 @@ end
 
 class Job
   attr_reader(:id, :pid)
+  attr_accessor(:duration)
 
   def initialize(work, kernel)
     @id = SecureRandom.hex
     @work = work
     @kernel = kernel
     @status = "pending"
+    @duration = 0
   end
 
   def pause
@@ -155,33 +164,49 @@ class MLFQKernel
     end
   end
 
-  def initialize
+  def initialize(naive: true)
     @priority_queue = PriorityQueue.new(8)
     @mutex = Mutex.new
     @rd, @wr = IO.pipe
     @sys_calls = SysCalls.new(@wr)
     @priority_boost_clock = current_clock_time
+    @naive = naive
   end
 
   def start
     loop do
       job = context_switch
       next sleep(TIME_SLICE) unless job
-      time_slice_exhausted = nil
+      read = nil
       time_spent = Benchmark.realtime do
-        io = @rd.wait_readable(TIME_SLICE)
-        io.gets if io
-        time_slice_exhausted = !io
+        read = @rd.wait_readable(TIME_SLICE)
       end
 
-      puts("Ran job #{job.pid} for #{time_spent}")
+      @rd.gets if read
 
       if job.finished?
         @mutex.synchronize { @priority_queue.remove_job(job.id) }
-      else
-        next unless @priority_queue.work_size > 1
-        job.pause
+        next
       end
+
+      next if @priority_queue.work_size <= 1
+
+      job.pause
+
+      time_slice_exhausted = if @naive
+        !read
+      else
+        job.duration += time_spent
+        if job.duration >= TIME_SLICE
+          job.duration = 0
+          true
+        else
+          false
+        end
+      end
+      puts("Ran job #{job.pid} for #{time_spent}")
+
+
 
       if boost_priority?
         boost_priority
@@ -219,35 +244,42 @@ class MLFQKernel
   end
 end
 
-k = MLFQKernel.new
+# my_kernel = MLFQKernel.new
+my_kernel = MLFQKernel.new(naive: false)
 
-th = Thread.new do
-  k.add_job do |_kernel|
-    loop do
-    end
+my_kernel.add_job do |_kernel|
+  loop do
   end
+end
 
-  k.add_job do |_kernel|
-    loop do
-    end
+my_kernel.add_job do |_kernel|
+  loop do
   end
+end
 
-  k.add_job do |kernel|
-    timer = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    loop do
-      # Try to game the system by making a system call just before the alloted time slice has exhausted
-      # so that this process is always in the highest priority queue.
-      # This will make this process unfairly get almost all of the cpu; starving other processses.
-      if (Process.clock_gettime(Process::CLOCK_MONOTONIC) - timer) > 0.04
-        kernel.make_sys_call
-        timer =  Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      end
+# my_kernel.add_job do |kernel|
+#   1.upto(10000) do
+#     sleep(0.001)
+#     kernel.make_sys_call if(rand < 0.1)
+#   end
+# end
+
+my_kernel.add_job do |kernel|
+  timer = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  loop do
+    # Try to game the system by making a system call just before the alloted time slice has exhausted
+    # With the naive version of the scheduler, this process is always in the highest priority queue.
+    # This will make this process unfairly get almost all of the cpu; starving other processses.
+    # This won't be the case in the non-naive version.
+    if (Process.clock_gettime(Process::CLOCK_MONOTONIC) - timer) > 0.04
+      kernel.make_sys_call
+      timer =  Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
   end
 end
 
 
-k.start
 
-th.join
+my_kernel.start
+
 
