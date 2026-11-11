@@ -3,8 +3,12 @@
 #   - Processes are scheduled using a set of queues ordered by priority, from lowest to highest. The queues may have time slices proportional to their priority 
 #   - If process A's queue priority > Process B's, process A runs
 #   - If process A's queue == Process B's, the processes are scheduled in a round-robbin fashion
-#   - When a process uses up it's time slice (cumulatively), it's demoted to the lower queue, else it remains in it's current queue
+#   - When a process uses up it's time slice (in a single run for "naive" version or cumulatively for non-naive), it's demoted to the lower queue, else it remains in it's current queue
 #   - Periodically (say every 1s), reset by moving all processes to the topost queue
+#   
+
+NAIVE = ARGV[0]
+puts NAIVE
 
 require "securerandom"
 require "benchmark"
@@ -22,7 +26,7 @@ class PriorityQueue
 
   def rotate_job
     queue = @job_queues.find(&:any?)
-    queue.pop.tap { add_job(it, queue.level) } if queue
+    queue.rotate if queue
   end
 
   def add_job(job, level = 0)
@@ -88,6 +92,10 @@ class JobQueue
   def remove(id)
     find(id).tap { @queue.delete(it) if it }
   end
+
+  def rotate
+    pop.tap { add(it) }
+  end
 end
 
 class Job
@@ -129,7 +137,11 @@ class Job
   end
 
   def eql?(job)
-    id == job.id
+    job.is_a?(Job) && id == job.id
+  end
+
+  def hash
+    id.hash
   end
 
   def run
@@ -164,13 +176,13 @@ class MLFQKernel
     end
   end
 
-  def initialize(naive: true)
+  def initialize
     @priority_queue = PriorityQueue.new(8)
     @mutex = Mutex.new
     @rd, @wr = IO.pipe
     @sys_calls = SysCalls.new(@wr)
     @priority_boost_clock = current_clock_time
-    @naive = naive
+    @naive = NAIVE
   end
 
   def start
@@ -192,6 +204,8 @@ class MLFQKernel
       next if @priority_queue.work_size <= 1
 
       job.pause
+      # read again from pipe in case syscall was made between previous read and job pause
+      @rd.wait_readable(0).then { it.gets if it } 
 
       time_slice_exhausted = if @naive
         !read
@@ -245,7 +259,7 @@ class MLFQKernel
 end
 
 # my_kernel = MLFQKernel.new
-my_kernel = MLFQKernel.new(naive: false)
+my_kernel = MLFQKernel.new
 
 my_kernel.add_job do |_kernel|
   loop do
