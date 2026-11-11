@@ -4,7 +4,7 @@
 #   - If process A's queue priority > Process B's, process A runs
 #   - If process A's queue == Process B's, the processes are scheduled in a round-robbin fashion
 #   - When a process uses up it's time slice (in a single run for "naive" version or cumulatively for non-naive), it's demoted to the lower queue, else it remains in it's current queue
-#   - Periodically (say every 1s), reset by moving all processes to the topost queue
+#   - Periodically (say every 1s), reset by moving all processes to the highest priority queue
 #   
 
 NAIVE = ARGV[0]
