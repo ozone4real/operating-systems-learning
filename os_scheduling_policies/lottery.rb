@@ -101,7 +101,7 @@ class LotteryKernel
       @rd.gets if read
 
       if job.finished?
-        @mutex.synchronize { remove_job(job) }
+        remove_job(job)
         next
       end
 

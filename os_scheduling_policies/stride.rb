@@ -1,6 +1,5 @@
 require("securerandom")
 require("benchmark")
-require("sorted_set")
 
 # Demonstration of basic stride scheduling. 
 class Job
@@ -13,10 +12,6 @@ class Job
     @status = "pending"
     @tickets = tickets
     @pass = pass
-  end
-
-  def increment_pass
-    @pass += 1000.to_f/@tickets
   end
 
   def pause
@@ -55,15 +50,23 @@ class Job
 
   def run
     if pending?
+      stride_forward
       @pid = fork { @work.call(@kernel) }
       @waiter = Process.detach(@pid)
     else
-      raise("Job is finished") if finished?
+      return if finished?
       return if running?
 
+      stride_forward
       Process.kill("CONT", pid)
     end
     @status = "running"
+  end
+
+  private
+
+  def stride_forward
+    @pass += 1000.to_f/@tickets
   end
 end
 
@@ -101,7 +104,7 @@ class StrideKernel
       @rd.gets if read
 
       if job.finished?
-        @mutex.synchronize { remove_job(job) }
+        remove_job(job)
         next
       end
 
@@ -133,7 +136,6 @@ class StrideKernel
     job = @jobs_list.sort_by(&:pass).first
     return unless job
 
-    job.increment_pass
     job.run
     job
   end
@@ -151,7 +153,7 @@ producer_thread = Thread.new do
     end
   end
 
-  my_kernel.add_job(50) do |_kernel|
+  my_kernel.add_job(100) do |_kernel|
     loop do
     end
   end
@@ -163,7 +165,7 @@ producer_thread = Thread.new do
 
   sleep(50)
 
-  my_kernel.add_job(100) do |_kernel|
+  my_kernel.add_job(15) do |_kernel|
     loop do
     end
   end
