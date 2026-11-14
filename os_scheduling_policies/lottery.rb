@@ -2,7 +2,7 @@ require("securerandom")
 require("benchmark")
 
 # Demonstration of basic lottery scheduling. Lottery scheduling is a probabilistic proportional share scheduling policy
-# where processes are assigned a "tickets" which represent a portion of the cpu and they are scheduled based on their ticket size.
+# where processes are assigned "tickets" which represent a portion of the cpu, and they are scheduled based on their ticket sizes.
 #   - Processes are assigned tickets
 #   - A winning ticket is selected at random from the total tickets
 #   - The process assigned to the winning ticket runs
@@ -101,7 +101,7 @@ class LotteryKernel
       @rd.gets if read
 
       if job.finished?
-        @mutex.synchronize { remove_job(job) }
+        remove_job(job)
         next
       end
 

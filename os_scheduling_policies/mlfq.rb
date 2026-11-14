@@ -1,4 +1,5 @@
 # (Probably stupid) demonstration of the Multi-level Feedback Queue (MLFQ) operating system scheduling policy with Ruby.
+# MLFQ is a priority-based scheduling policy.
 # The policy is as follows basically:
 #   - Processes are scheduled using a set of queues ordered by priority, from lowest to highest. The queues may have time slices proportional to their priority 
 #   - If process A's queue priority > Process B's, process A runs
